@@ -1,0 +1,112 @@
+library(epiDisplay)
+library(lattice)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+
+nhds <- read.csv("finaldata.csv", sep = ",", header = TRUE, stringsAsFactors =
+                   FALSE)
+nhds.working <- data.frame(nhds)
+nhds.working %>%  summarise_all(funs(sum(is.na(.))))
+
+# The only variable that contains NAs is the secondary expected source of payment.
+#Not all individuals are expected to have a secondary source of payment, so this
+#is reasonable. We aren't intending to use that variable so we can leave it as is. 
+
+nhds.working$OWNER_fac <- factor(nhds$OWNER, 
+                     levels = c(1,2,3),
+                     labels = c("Proprietary", "Government", "Nonprofit"))
+tab1(nhds.working$OWNER_fac, sort.group = "increasing", cum.percent = TRUE, main =
+       "Distribution of Hospital Ownership", horiz = TRUE, bar.values = "percent")
+
+#More than 80% of the data is from Nonprofit hospitals, including churches. 
+
+nhds.working$ESOP1_fac <- factor(nhds.working$ESOP1,
+levels = c(1,2,3,4,5,6,7,8,9,10,99),
+            labels = c("Worker's comp", "Medicare", "Medicaid", "Other government",
+                       "Blue Cross/Blue Shield", "HMO/PPO", "Other Private",
+                       "Self-pay", "No charge", "Other", "Not stated"))
+tab1(nhds.working$ESOP1_fac, sort.group = "decreasing", cum.percent = TRUE, 
+     bar.values = "percent", main = "Distribution of Principal Expected Source of Payment",
+     cex.main = .75, cex.axis = .75, cex.name = .75, cex.lab = .75)
+nhds.working$YEAR_fac <- factor(nhds.working$YEAR,
+levels = c(0,1,2,3,4,5,6,7),
+            labels = c("2000", "2001", "2002", "2003", "2004", "2005", "2006", "2007"))
+df1<- nhds.working %>%
+  group_by(YEAR_fac, OWNER_fac, ESOP1_fac) %>%
+  summarize(Freq=n())
+p <- ggplot(df1, aes(fill=OWNER_fac, y=Freq, x=YEAR_fac)) + 
+    geom_bar(position="fill", stat="identity")
+p2 <- ggplot(df1, aes(fill=ESOP1_fac, y=Freq, x=YEAR_fac)) + 
+    geom_bar(position="fill", stat="identity")
+p + labs(title = "Distribution Between 2000 to 2007", subtitle = "Hospital Ownership",
+         x = "Years", y = "Frequency") + scale_fill_discrete(name = "Hospital Types")
+p2 + labs(subtitle = "Principal Expected Source of Payment", x = "Years", y = "Frequency") +
+  scale_fill_discrete(name = "Payment Types")
+
+table(nhds.working$OWNER_fac, nhds.working$ESOP1_fac )
+chisq.test(nhds.working$OWNER_fac, nhds.working$ESOP1_fac)
+
+#By this test we can conclude that hospital ownership and principal expected 
+#source of income are not independently related. For example, the lowest frequency
+#observed in Proprietary hospitals (hospitals which are for-profit) see individuals
+#who are expected to have no charge. 
+
+heart <- filter(nhds.working, dx1_pre == 428)
+tab1(heart$OWNER_fac, sort.group = "increasing", cum.percent = TRUE, 
+     main = "Distribution of Hospital Ownership in Patients Diagnosed with Heart Failure",
+     horiz = TRUE, bar.values = "percent", cex.main = .75, cex.axis = .75, cex.name = .75, cex.lab = .75)
+tab1(heart$ESOP1_fac, sort.group = "decreasing", cum.percent = TRUE, 
+     bar.values = "percent", 
+     main = "Distribution of Principal Expected Source of Payment in Patients Diagnosed with Heart Failure",
+     cex.main = .55, cex.axis = .75, cex.name = .75, cex.lab = .75)
+
+#Distributions of hospital ownership are very similar to the distributions found
+#in the entire dataset. Distributions of principal expected source of payment are
+#skewed further toward Medicare in those with heart failure than in the entire dataset.
+
+heart2 <- heart[!apply(heart == "", 1, all),]
+sort(table(heart2$PD1), decreasing = TRUE)[1:6]
+
+# The top five procedure codes in those with heart failure are as follows:
+# Code 8872: Diagnostic Ultrasound of the Heart
+# Code 3995: Hemodialysis
+# Code 3722: Left Heart Cardiac Catheterization
+# Code 9904: Transfusion of Packed Cells
+# Code 3491: Thoracentesis 
+# Only code 8872 and 3722 have to do with the heart so we'll continue with those codes.
+
+heart3 <- filter(heart2, PD1 == 8872 | PD1 == 3722)
+m_heart <- lm(PD1 ~ OWNER_fac + ESOP1_fac, data = heart3)
+summary(m_heart)
+
+# According to the linear model summary, each level of hospital ownership is a 
+# statistically significant predictor of either of the two chosen procedures in 
+# patients diagnosed with heart failure. Some levels of principal payment method 
+# are not significant like Blue Cross/Blue Shield, HMO/PPO and other private means
+# of payment. It is seen that whether the patient is paying by government funds 
+# (Medicare, Medicaid, other government) are statically significant predictors of 
+# these procedures. 
+# 
+# To assess whether the linear model is reliable, we need to run some model 
+# diagnostics and check for (1) linearity, (2) nearly normal residuals, and 
+# (3) constant variability.
+
+#Linearity
+ggplot(data = m_heart, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  xlab("Fitted values") +
+  ylab("Residuals")
+
+#Nearly Normal Residuals
+ggplot(data = m_heart, aes(x = .resid)) +
+  geom_histogram() +
+  xlab("Residuals")
+
+#Constant Variability
+ggplot(data = m_heart, aes(sample = .resid)) +
+  stat_qq()
+
+#Output data
+write.csv(heart3, "C:\\Desktop\\UCLA\\203A\\heartdf.csv", row.names=FALSE)
